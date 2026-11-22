@@ -40,9 +40,7 @@ export function App() {
   const [running, setRunning] = useState(false);
   const [musicPlaying, setMusicPlaying] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.35);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioGainRef = useRef<GainNode | null>(null);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const loFiAudioRef = useRef<HTMLAudioElement | null>(null);
   const [darkMode, setDarkMode] = useState(false);
   const [selectedArtwork, setSelectedArtwork] = useState(1);
   const [timerPosition, setTimerPosition] = useState<Position>({ x: 50, y: 50 });
@@ -61,42 +59,16 @@ export function App() {
   const settingsAnchorRef = useRef<HTMLButtonElement | null>(null);
   const timerAnchorRef = useRef<HTMLDivElement | null>(null);
 
-  const startLoFi = async () => {
-    let context = audioContextRef.current;
-    if (!context) {
-      context = new AudioContext();
-      audioContextRef.current = context;
-      const gain = context.createGain();
-      gain.gain.value = musicVolume;
-      gain.connect(context.destination);
-      audioGainRef.current = gain;
-    }
-    await context.resume();
-    if (audioSourceRef.current) return;
-    const source = context.createBufferSource();
-    source.buffer = createLoFiLoop(context);
-    source.loop = true;
-    source.connect(audioGainRef.current ?? context.destination);
-    source.start();
-    audioSourceRef.current = source;
-  };
-
-  const stopLoFi = () => {
-    if (audioSourceRef.current) {
-      audioSourceRef.current.stop();
-      audioSourceRef.current.disconnect();
-      audioSourceRef.current = null;
-    }
-  };
-
   const toggleMusic = async () => {
+    const audio = loFiAudioRef.current;
+    if (!audio) return;
     if (musicPlaying) {
-      stopLoFi();
+      audio.pause();
       setMusicPlaying(false);
       return;
     }
     try {
-      await startLoFi();
+      await audio.play();
       setMusicPlaying(true);
     } catch (error) {
       console.error("Unable to start lo-fi audio.", error);
@@ -105,14 +77,11 @@ export function App() {
   };
 
   useEffect(() => {
-    if (audioGainRef.current) {
-      audioGainRef.current.gain.setTargetAtTime(musicVolume, audioContextRef.current?.currentTime ?? 0, 0.03);
-    }
+    if (loFiAudioRef.current) loFiAudioRef.current.volume = musicVolume;
   }, [musicVolume]);
 
   useEffect(() => () => {
-    stopLoFi();
-    void audioContextRef.current?.close();
+    loFiAudioRef.current?.pause();
   }, []);
 
   useEffect(() => {
@@ -215,6 +184,7 @@ export function App() {
 
   return (
     <main className={`app-window ${darkMode ? "app-window--dark" : ""}`} aria-label="okasa-pomo desktop application">
+      <audio ref={loFiAudioRef} src="/audio/lofi.mp3" loop preload="auto" />
       <header className="window-bar">
         <button className="brand brand-button" type="button" onClick={openTour} aria-label="Open guided tour">okasa-pomo</button>
         <button className="tour-launcher" type="button" onClick={openTour}>Tour</button>
@@ -267,32 +237,6 @@ function WatercolorReveal({ imageSrc, imageAlt, progress }: { imageSrc: string; 
       <image href={imageSrc} x="0" y="0" width="100" height="100" preserveAspectRatio="xMidYMid slice" mask="url(#pixel-reveal-mask)" />
     </svg>
   </div>;
-}
-
-function createLoFiLoop(context: AudioContext) {
-  const sampleRate = context.sampleRate;
-  const duration = 8;
-  const buffer = context.createBuffer(1, sampleRate * duration, sampleRate);
-  const data = buffer.getChannelData(0);
-  const chordNotes = [220, 261.63, 329.63, 392];
-  let noiseSeed = 123456789;
-
-  for (let i = 0; i < data.length; i += 1) {
-    const time = i / sampleRate;
-    const fade = Math.min(1, time / 0.12, (duration - time) / 0.12);
-    const beat = time % 1;
-    const kick = beat < 0.12 ? Math.sin(Math.PI * 2 * (55 - beat * 80) * beat) * Math.exp(-beat * 18) * 0.10 : 0;
-    let warmTone = 0;
-    for (let note = 0; note < chordNotes.length; note += 1) {
-      const frequency = chordNotes[note] * (1 + Math.sin(time * 0.13 + note) * 0.001);
-      warmTone += Math.sin(Math.PI * 2 * frequency * time + note * 0.7) * (0.018 / (1 + note * 0.16));
-    }
-    noiseSeed = (noiseSeed * 1664525 + 1013904223) >>> 0;
-    const noise = (noiseSeed / 0xffffffff - 0.5) * 0.012;
-    const vinyl = noise * (0.55 + 0.45 * Math.sin(time * 31));
-    data[i] = Math.max(-1, Math.min(1, (warmTone + kick + vinyl) * fade));
-  }
-  return buffer;
 }
 
 function createPixelRevealCells(progress: number) {
@@ -365,7 +309,7 @@ function MusicWidget({ position, playing, volume, onVolumeChange, onToggle, onPo
     <button className="music-play" type="button" aria-label={playing ? "Pause music" : "Play music"} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onToggle(); }}>{playing ? "Ⅱ" : <Play size={9} fill="currentColor" />}</button>
     <img className="music-note" src={figmaMusic} alt="" />
     <span className="music-name">lo-fi</span>
-    <input className={`music-volume ${playing ? "music-volume--playing" : ""}`} type="range" min="0" max="1" step="0.05" value={volume} aria-label="Lo-fi volume" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onChange={(event) => onVolumeChange(Number(event.target.value))} />
+    <input className="music-volume" type="range" min="0" max="1" step="0.05" value={volume} aria-label="Lo-fi volume" style={{ "--volume-progress": `${volume * 100}%` } as React.CSSProperties} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onChange={(event) => onVolumeChange(Number(event.target.value))} />
   </div>;
 }
 function TimerView({ anchorRef, position, minutes, seconds, running, phase, currentSession, totalSessions, progress, artworkTitle, onToggle, onReset, onPointerDown, onPointerMove, onPointerUp }: { anchorRef: React.RefObject<HTMLDivElement | null>; position: Position; minutes: string; seconds: string; running: boolean; phase: TimerPhase; currentSession: number; totalSessions: number; progress: number; artworkTitle: string; onToggle: () => void; onReset: () => void; onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLElement>) => void; onPointerUp: () => void }) {

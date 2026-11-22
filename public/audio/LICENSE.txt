@@ -1,0 +1,7 @@
+OpenLo-Fi "Watercolors By the Window"
+
+Source: https://github.com/btahir/open-lofi
+License: CC0 1.0 Universal (public domain)
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The track was obtained from the OpenLo-Fi public-domain collection.
